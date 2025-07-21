@@ -1,3 +1,17 @@
+/**
+ * @file src/screens/REPL.tsx
+ * @description This file defines the main Read-Eval-Print Loop (REPL) component of the application.
+ * The REPL is the primary user interface, responsible for handling user input, managing conversation
+ * history, interacting with the AI model, and rendering the entire interactive session in the
+ * terminal.
+ *
+ * It orchestrates a complex set of functionalities, including:
+ * - Displaying the conversation history.
+ * - Managing loading states and user prompts.
+ * - Handling permissions for tool usage.
+ * - Integrating with various hooks for features like cost tracking, message logging, and more.
+ * - Rendering custom UI components for a rich terminal experience.
+ */
 import { ToolUseBlockParam } from '@anthropic-ai/sdk/resources/index.mjs'
 import { Box, Newline, Static } from 'ink'
 import ProjectOnboarding, {
@@ -81,12 +95,65 @@ type Props = {
   isDefaultModel?: boolean
 }
 
+/**
+ * @typedef {object} BinaryFeedbackContext
+ * @description Represents the context for a binary feedback session, where the user is asked to compare two different assistant messages.
+ * @property {AssistantMessage} m1 - The first assistant message to be compared.
+ * @property {AssistantMessage} m2 - The second assistant message to be compared.
+ * @property {(result: BinaryFeedbackResult) => void} resolve - A function to be called with the result of the user's feedback.
+ */
 export type BinaryFeedbackContext = {
   m1: AssistantMessage
   m2: AssistantMessage
   resolve: (result: BinaryFeedbackResult) => void
 }
-
+/**
+ * @description
+ * ## REPL Component
+ *
+ * The `REPL` (Read-Eval-Print Loop) component is the core of the application's user interface.
+ * It manages the entire interactive session, from user input to displaying AI responses and handling tool usage.
+ *
+ * ### Props:
+ *
+ * - **`commands`**: A list of available slash commands.
+ * - **`dangerouslySkipPermissions`**: A flag to bypass permission checks.
+ * - **`debug`**: Enables debug mode for more verbose logging.
+ * - **`initialForkNumber`**: The starting number for forking conversations.
+ * - **`initialPrompt`**: The initial prompt to process when the REPL starts.
+ * - **`messageLogName`**: A unique name for the message log file.
+ * - **`shouldShowPromptInput`**: A flag to control the visibility of the prompt input field.
+ * - **`tools`**: A list of available tools for the AI model.
+ * - **`verbose`**: Enables verbose mode for detailed output.
+ * - **`initialMessages`**: An array of messages to populate the REPL with at startup.
+ * - **`mcpClients`**: A list of active MCP clients.
+ * - **`isDefaultModel`**: A flag indicating if the current model is the default one.
+ *
+ * ### State Management:
+ *
+ * The component uses a variety of state variables to manage the UI and data flow, including:
+ * - `messages`: Stores the conversation history.
+ * - `isLoading`: Tracks whether the application is waiting for a response from the AI.
+ * - `toolJSX`: Holds any custom JSX to be rendered by a tool.
+ * - `toolUseConfirm`: Manages the state for tool usage permission requests.
+ * - `binaryFeedbackContext`: Handles the context for binary feedback sessions.
+ *
+ * ### Core Logic:
+ *
+ * - **`onInit`**: An initialization function that processes the `initialPrompt` when the component mounts.
+ * - **`onQuery`**: A function that handles new user queries. It processes the input, sends it to the AI model, and updates the conversation state with the response. It manages the entire lifecycle of a query, including tool calls and streaming responses.
+ *
+ * ### Rendering:
+ *
+ * - The component uses `ink` to render a terminal-based UI.
+ * - It maps over the `messages` array to display the conversation history using the `Message` component.
+ * - It conditionally renders various UI elements, such as the `Spinner` during loading, `PermissionRequest` for tool usage, and the `PromptInput` for user input.
+ *
+ * This component is the central orchestrator of the user experience, bringing together all the different parts of the application into a cohesive interactive session.
+ *
+ * @param {Props} props - The properties for the REPL component.
+ * @returns {React.ReactNode} The rendered REPL interface.
+ */
 export function REPL({
   commands,
   dangerouslySkipPermissions,
@@ -733,6 +800,23 @@ export function REPL({
   )
 }
 
+/**
+ * @function shouldRenderStatically
+ * @description Determines whether a message should be rendered statically or transiently.
+ * Static rendering is an optimization that prevents re-rendering of messages that are no longer
+ * changing. This is crucial for performance in a terminal-based UI, as it minimizes the amount
+ * of redrawing required.
+ *
+ * A message is considered static if:
+ * - It is a user message or an assistant message without any associated tool use.
+ * - It is an assistant message whose associated tool use has been fully resolved.
+ * - It is a progress message whose associated tool use is not currently unresolved.
+ *
+ * @param {NormalizedMessage} message - The message to check.
+ * @param {NormalizedMessage[]} messages - The list of all normalized messages.
+ * @param {Set<string>} unresolvedToolUseIDs - A set of tool use IDs that are currently unresolved.
+ * @returns {boolean} `true` if the message should be rendered statically, `false` otherwise.
+ */
 function shouldRenderStatically(
   message: NormalizedMessage,
   messages: NormalizedMessage[],
@@ -765,7 +849,17 @@ function shouldRenderStatically(
       return !intersects(unresolvedToolUseIDs, message.siblingToolUseIDs)
   }
 }
-
+/**
+ * @function intersects
+ * @description A utility function that checks if two sets have a non-empty intersection.
+ * This is used to determine if a message's tool use is related to any of the currently
+ * unresolved tool uses.
+ *
+ * @template A
+ * @param {Set<A>} a - The first set.
+ * @param {Set<A>} b - The second set.
+ * @returns {boolean} `true` if the sets have at least one element in common, `false` otherwise.
+ */
 function intersects<A>(a: Set<A>, b: Set<A>): boolean {
   return a.size > 0 && b.size > 0 && [...a].some(_ => b.has(_))
 }

@@ -81,6 +81,24 @@ import { showInvalidConfigDialog } from '../components/InvalidConfigDialog'
 import { ConfigParseError } from '../utils/errors'
 import { grantReadPermissionForOriginalDir } from '../utils/permissions/filesystem'
 import { MACRO } from '../constants/macros'
+/**
+ * @description
+ * ## completeOnboarding
+ *
+ * `completeOnboarding` is a utility function that marks the onboarding process as complete for the user.
+ *
+ * ### Functionality:
+ *
+ * - **Retrieves Global Configuration**: It starts by fetching the current global configuration settings using `getGlobalConfig`.
+ *
+ * - **Updates Onboarding Status**: It then updates the configuration to reflect that the user has completed the onboarding process. This is done by setting `hasCompletedOnboarding` to `true`.
+ *
+ * - **Records Onboarding Version**: To keep track of which version of the application the user was onboarded with, it sets `lastOnboardingVersion` to the current application version, which is stored in `MACRO.VERSION`.
+ *
+ * - **Saves Configuration**: Finally, it saves the updated configuration back to the system using `saveGlobalConfig`.
+ *
+ * This function is essential for ensuring that the onboarding process is only shown to new users and not on subsequent application startups.
+ */
 export function completeOnboarding(): void {
   const config = getGlobalConfig()
   saveGlobalConfig({
@@ -90,6 +108,33 @@ export function completeOnboarding(): void {
   })
 }
 
+/**
+ * @description
+ * ## showSetupScreens
+ *
+ * The `showSetupScreens` function is responsible for displaying initial setup and configuration screens to the user when the application starts. It ensures that the user is properly onboarded and has accepted necessary terms and permissions before proceeding.
+ *
+ * ### Parameters:
+ *
+ * - **`dangerouslySkipPermissions`** (`boolean`, optional): If set to `true`, this will bypass the permission-related dialogs. This is intended for specific, controlled environments and should be used with caution.
+ * - **`print`** (`boolean`, optional): If `true`, the function will skip interactive dialogs, such as the trust dialog. This is useful for non-interactive sessions where the output is being printed directly.
+ *
+ * ### Functionality:
+ *
+ * - **Environment Check**: The function first checks if the application is running in a test environment (`process.env.NODE_ENV === 'test'`). If so, it exits early, as these setup screens are not needed for automated tests.
+ *
+ * - **Onboarding Screen**: It retrieves the global configuration and checks if the user has completed onboarding before (`config.hasCompletedOnboarding`). If not, it renders the `Onboarding` component. This component guides the user through the initial setup, and upon completion, it calls `completeOnboarding` to update the user's status.
+ *
+ * - **Trust Dialog**: For interactive sessions (where `print` is `false` and `dangerouslySkipPermissions` is not set), it checks if the user has accepted the trust dialog (`checkHasTrustDialogAccepted`). If not, it displays the `TrustDialog` component. This dialog is crucial for obtaining user consent for file system access and other permissions. Once the user accepts, it grants read permission to the current working directory.
+ *
+ * - **MCP Server Approvals**: If the user is an "ant" (an internal user), it proceeds to handle any pending MCP (Multi-Claude Proxy) server approvals by calling `handleMcprcServerApprovals`. This is part of the advanced configuration for internal users.
+ *
+ * This function ensures a smooth and secure setup process for the user, covering everything from initial onboarding to necessary permissions and advanced configurations.
+ *
+ * @param {boolean} [dangerouslySkipPermissions] - Skips permission dialogs if true.
+ * @param {boolean} [print] - Skips interactive dialogs if true.
+ * @returns {Promise<void>}
+ */
 async function showSetupScreens(
   dangerouslySkipPermissions?: boolean,
   print?: boolean,
@@ -174,6 +219,41 @@ function logStartup(): void {
   })
 }
 
+/**
+ * @description
+ * ## setup
+ *
+ * The `setup` function is a critical initialization routine that configures the application's environment and performs several key tasks before the main logic is executed. It ensures that the application is ready to run, with the correct context and settings.
+ *
+ * ### Parameters:
+ *
+ * - **`cwd`** (`string`): The current working directory for the application. This can be provided via a command-line argument.
+ * - **`dangerouslySkipPermissions`** (`boolean`, optional): If `true`, the function will bypass security checks related to permissions. This is intended for secure, isolated environments only.
+ *
+ * ### Functionality:
+ *
+ * - **Set Working Directory**: It sets the current and original working directories. If a custom `cwd` is provided, it is set as the application's working directory.
+ *
+ * - **Grant File Permissions**: It grants read permissions for the original working directory, ensuring that the application can access necessary files.
+ *
+ * - **Permission-less Mode Security**: If `dangerouslySkipPermissions` is enabled, it performs critical security checks. It verifies that the application is not running with root/sudo privileges and is operating within a Docker container with no internet access. These checks prevent unsafe usage of this mode.
+ *
+ * - **Background Cleanup**: It initiates a background process to clean up old message files, helping to manage storage and keep the application tidy.
+ *
+ * - **Pre-fetch Context**: It pre-fetches all necessary context data at once using `getContext`. This includes information about the user's environment, configuration, and other relevant details, optimizing performance by loading data upfront.
+ *
+ * - **Configuration Migration**: It handles the migration of old configuration settings to new ones. For instance, it migrates `iterm2KeyBindingInstalled` to `shiftEnterKeyBindingInstalled` to maintain compatibility and ensure a smooth user experience across updates.
+ *
+ * - **Session Analytics**: It checks for cost and duration information from the previous session and logs this data for analytics. This helps in monitoring application usage and performance.
+ *
+ * - **Auto-Updater Configuration**: It checks the status of the auto-updater and, if not configured, prompts the user to set it up via the `Doctor` screen. This ensures that the user can receive updates automatically.
+ *
+ * This function is a comprehensive setup routine that prepares the application for execution by handling everything from security checks to data pre-fetching and configuration management.
+ *
+ * @param {string} cwd - The current working directory.
+ * @param {boolean} [dangerouslySkipPermissions] - Skips security checks if true.
+ * @returns {Promise<void>}
+ */
 async function setup(
   cwd: string,
   dangerouslySkipPermissions?: boolean,
@@ -271,6 +351,24 @@ async function setup(
   }
 }
 
+/**
+ * @description
+ * ## main
+ *
+ * The `main` function serves as the primary entry point of the application. It is responsible for initializing the application, handling input from `stdin`, and parsing command-line arguments to determine the appropriate course of action.
+ *
+ * ### Functionality:
+ *
+ * - **Configuration Validation**: It begins by validating the application's configuration files. It calls `enableConfigs()` inside a `try-catch` block. If the configuration is invalid (e.g., due to a parsing error), it catches the `ConfigParseError` and displays a user-friendly dialog to inform the user of the issue. This ensures that the application does not proceed with a broken configuration.
+ *
+ * - **Input Handling**: The function checks if the application is being run in a non-TTY environment (e.g., as part of a pipe). If so, it reads content from `stdin` and stores it in the `inputPrompt` variable. This allows the application to be used in shell pipelines. It also attempts to open `/dev/tty` to maintain an interactive context, which is essential for certain features.
+ *
+ * - **Argument Parsing**: Finally, it calls `parseArgs` and passes the `stdin` content and the rendering context to it. The `parseArgs` function is responsible for processing the command-line arguments and executing the corresponding commands or starting the interactive REPL.
+ *
+ * This function orchestrates the initial startup sequence of the application, ensuring that configurations are valid and that input from various sources is correctly handled before the main application logic is executed.
+ *
+ * @returns {Promise<void>}
+ */
 async function main() {
   // Validate configs are valid and enable configuration system
   try {
@@ -310,6 +408,54 @@ async function main() {
   await parseArgs(inputPrompt, renderContext)
 }
 
+/**
+ * @description
+ * ## parseArgs
+ *
+ * The `parseArgs` function is the heart of the command-line interface (CLI). It uses the `@commander-js/extra-typings` library to define, parse, and handle all command-line arguments and sub-commands for the application.
+ *
+ * ### Parameters:
+ *
+ * - **`stdinContent`** (`string`): The content read from `stdin`. This is passed in from the `main` function and is used when the application is part of a shell pipeline.
+ * - **`renderContext`** (`RenderOptions | undefined`): The rendering context for `ink`, which is used to manage how the UI is rendered in the terminal.
+ *
+ * ### Functionality:
+ *
+ * - **Command Initialization**: It initializes a new `Command` object from `commander-js`, which serves as the root for all CLI commands.
+ *
+ * - **Command Definition**: It defines the main application command, including its name, description, and available options. The description provides a helpful overview of the application and lists the available slash commands for interactive sessions.
+ *
+ * - **Options**: It defines several command-line options, such as:
+ *   - `-c, --cwd`: Sets the current working directory.
+ *   - `-p, --print`: Prints the response and exits, for non-interactive use.
+ *   - `--dangerously-skip-permissions`: Bypasses security checks (with safeguards).
+ *   - `-v, --version`: Displays the application version.
+ *
+ * - **Main Action Handler**: The `action` handler for the main command is where the core logic resides. It:
+ *   - Displays setup screens (`showSetupScreens`).
+ *   - Performs application setup (`setup`).
+ *   - Asserts the minimum required version.
+ *   - Initializes tools and MCP clients.
+ *   - If in `--print` mode, it processes the input, gets a response, prints it, and exits.
+ *   - Otherwise, it renders the interactive `REPL` component.
+ *
+ * - **Sub-commands**: It defines a comprehensive set of sub-commands for various functionalities:
+ *   - `config`: Manages application configuration (`get`, `set`, `remove`, `list`).
+ *   - `approved-tools`: Manages user-approved tools.
+ *   - `mcp`: Configures and manages MCP (Multi-Claude Proxy) servers.
+ *   - `log`: Manages and displays conversation logs.
+ *   - `resume`: Resumes previous conversations.
+ *   - `doctor`: Checks the health of the auto-updater.
+ *   - And many more, each with its own set of options and actions.
+ *
+ * - **Argument Parsing**: At the end, it calls `program.parseAsync(process.argv)` to parse the command-line arguments and execute the appropriate actions.
+ *
+ * This function provides a well-structured and feature-rich CLI, enabling users to interact with the application in various ways, from interactive sessions to scripted automation.
+ *
+ * @param {string} stdinContent - Content from stdin.
+ * @param {RenderOptions | undefined} renderContext - Rendering context for ink.
+ * @returns {Promise<Command>} - The configured commander program.
+ */
 async function parseArgs(
   stdinContent: string,
   renderContext: RenderOptions | undefined,
@@ -1487,6 +1633,24 @@ ${commandList}`,
   return program
 }
 
+/**
+ * @description
+ * ## stdin
+ *
+ * The `stdin` function is a utility designed to read all available data from the standard input (`stdin`) stream. It is particularly useful when the application is used in a pipeline, where it needs to process input piped from another command.
+ *
+ * ### Functionality:
+ *
+ * - **TTY Check**: It first checks if `process.stdin` is a TTY (a terminal). If it is, the function returns an empty string, as there is no piped input to read.
+ *
+ * - **Data Aggregation**: If `stdin` is not a TTY, it iteratively reads all data chunks from the stream and aggregates them into a single string.
+ *
+ * - **Return Value**: It returns the complete string read from `stdin`.
+ *
+ * This function is essential for enabling the application to work seamlessly in command-line pipelines.
+ *
+ * @returns {Promise<string>} - The content read from stdin.
+ */
 // TODO: stream?
 async function stdin() {
   if (process.stdin.isTTY) {
@@ -1497,17 +1661,48 @@ async function stdin() {
   for await (const chunk of process.stdin) data += chunk
   return data
 }
-
+/**
+ * @description
+ * ## Process Exit Handler
+ *
+ * This event handler is triggered when the application is about to exit. It performs necessary cleanup tasks to ensure a graceful shutdown.
+ *
+ * ### Functionality:
+ *
+ * - **Cursor Restoration**: It calls `resetCursor()` to restore the terminal cursor to its visible state. This is important because the application might hide the cursor during its operation.
+ *
+ * - **Persistent Shell Cleanup**: It closes the persistent shell instance by calling `PersistentShell.getInstance().close()`. This ensures that any background shell processes are properly terminated.
+ */
 process.on('exit', () => {
   resetCursor()
   PersistentShell.getInstance().close()
 })
-
+/**
+ * @description
+ * ## SIGINT Handler
+ *
+ * This event handler catches the `SIGINT` signal, which is typically sent when the user presses `Ctrl+C`. It ensures that the application exits gracefully when interrupted by the user.
+ *
+ * ### Functionality:
+ *
+ * - **Graceful Exit**: It logs "SIGINT" to the console and then calls `process.exit(0)` to terminate the application with a success code.
+ */
 process.on('SIGINT', () => {
   console.log('SIGINT')
   process.exit(0)
 })
-
+/**
+ * @description
+ * ## resetCursor
+ *
+ * The `resetCursor` function is a utility that ensures the terminal cursor is visible. The application might hide the cursor during interactive sessions, and this function restores it to its default state.
+ *
+ * ### Functionality:
+ *
+ * - **Terminal Detection**: It determines the appropriate terminal stream (`stderr` or `stdout`) to write to.
+ *
+ * - **Cursor Restoration**: It writes an ANSI escape code (`\u001B[?25h`) to the terminal, which makes the cursor visible.
+ */
 function resetCursor() {
   const terminal = process.stderr.isTTY
     ? process.stderr
