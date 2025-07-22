@@ -1,3 +1,13 @@
+/**
+ * @file src/query.ts
+ * @description This file is the core of the AI interaction logic. It defines the `query` function,
+ * which is responsible for sending requests to the AI model, handling responses, and managing
+ * the entire lifecycle of a query. This includes processing tool usage, handling streaming
+ * responses, and managing conversational context.
+ *
+ * The file orchestrates the communication between the user, the AI model, and the available
+ * tools, making it a central piece of the application's architecture.
+ */
 import {
   Message as APIAssistantMessage,
   MessageParam,
@@ -31,7 +41,22 @@ import {
 import { BashTool } from './tools/BashTool/BashTool'
 import { getCwd } from './utils/state'
 
+/**
+ * @typedef {object} Response
+ * @description Represents a simple response object containing the cost and the response string.
+ * @property {number} costUSD - The cost of the response in USD.
+ * @property {string} response - The response string.
+ */
 export type Response = { costUSD: number; response: string }
+/**
+ * @typedef {object} UserMessage
+ * @description Represents a message from the user.
+ * @property {MessageParam} message - The message content, formatted for the API.
+ * @property {'user'} type - The type of the message.
+ * @property {UUID} uuid - A unique identifier for the message.
+ * @property {FullToolUseResult} [toolUseResult] - The result of a tool use, if applicable.
+ * @property {object} [options] - Additional options for the message.
+ */
 export type UserMessage = {
   message: MessageParam
   type: 'user'
@@ -42,7 +67,16 @@ export type UserMessage = {
     kodingContext?: string
   }
 }
-
+/**
+ * @typedef {object} AssistantMessage
+ * @description Represents a message from the assistant.
+ * @property {number} costUSD - The cost of the assistant's response in USD.
+ * @property {number} durationMs - The duration of the API call in milliseconds.
+ * @property {APIAssistantMessage} message - The assistant's message content from the API.
+ * @property {'assistant'} type - The type of the message.
+ * @property {UUID} uuid - A unique identifier for the message.
+ * @property {boolean} [isApiErrorMessage] - A flag indicating if the message is an API error message.
+ */
 export type AssistantMessage = {
   costUSD: number
   durationMs: number
@@ -51,11 +85,26 @@ export type AssistantMessage = {
   uuid: UUID
   isApiErrorMessage?: boolean
 }
-
+/**
+ * @typedef {object} BinaryFeedbackResult
+ * @description Represents the result of a binary feedback session.
+ * @property {AssistantMessage | null} message - The selected message, or null if the user cancelled.
+ * @property {boolean} shouldSkipPermissionCheck - A flag indicating if the permission check should be skipped.
+ */
 export type BinaryFeedbackResult =
   | { message: AssistantMessage | null; shouldSkipPermissionCheck: false }
   | { message: AssistantMessage; shouldSkipPermissionCheck: true }
-
+/**
+ * @typedef {object} ProgressMessage
+ * @description Represents a progress update message, typically used for streaming tool output.
+ * @property {AssistantMessage} content - The content of the progress message.
+ * @property {NormalizedMessage[]} normalizedMessages - The normalized messages associated with the progress.
+ * @property {Set<string>} siblingToolUseIDs - The IDs of sibling tool uses.
+ * @property {Tool[]} tools - The tools associated with the progress message.
+ * @property {string} toolUseID - The ID of the tool use that this progress message is for.
+ * @property {'progress'} type - The type of the message.
+ * @property {UUID} uuid - A unique identifier for the message.
+ */
 export type ProgressMessage = {
   content: AssistantMessage
   normalizedMessages: NormalizedMessage[]
@@ -66,11 +115,28 @@ export type ProgressMessage = {
   uuid: UUID
 }
 
+/**
+ * @typedef {UserMessage | AssistantMessage | ProgressMessage} Message
+ * @description A union type representing all possible message types in a conversation.
+ */
 // Each array item is either a single message or a message-and-response pair
 export type Message = UserMessage | AssistantMessage | ProgressMessage
 
 const MAX_TOOL_USE_CONCURRENCY = 10
 
+/**
+ * @async
+ * @function queryWithBinaryFeedback
+ * @description This function handles the logic for querying the AI model with binary feedback.
+ * If the user is an "ant" and binary feedback is enabled, it fetches two responses from the
+ * assistant and prompts the user to choose the better one. Otherwise, it fetches a single
+ * response.
+ *
+ * @param {ToolUseContext} toolUseContext - The context for the tool use.
+ * @param {() => Promise<AssistantMessage>} getAssistantResponse - A function to get a response from the assistant.
+ * @param {(m1: AssistantMessage, m2: AssistantMessage) => Promise<BinaryFeedbackResult>} [getBinaryFeedbackResponse] - A function to get binary feedback from the user.
+ * @returns {Promise<BinaryFeedbackResult>} A promise that resolves to the result of the feedback session, or a single response if feedback is not used.
+ */
 // Returns a message if we got one, or `null` if the user cancelled
 async function queryWithBinaryFeedback(
   toolUseContext: ToolUseContext,
@@ -113,17 +179,28 @@ async function queryWithBinaryFeedback(
 }
 
 /**
- * The rules of thinking are lengthy and fortuitous. They require plenty of thinking
- * of most long duration and deep meditation for a wizard to wrap one's noggin around.
+ * @async
+ * @generator
+ * @function query
+ * @description This is the main function for querying the AI model. It is an async generator that yields messages as they are processed.
+ * It handles the entire lifecycle of a query, from sending the request to processing the response, including tool usage and streaming.
  *
- * The rules follow:
- * 1. A message that contains a thinking or redacted_thinking block must be part of a query whose max_thinking_length > 0
- * 2. A thinking block may not be the last message in a block
- * 3. Thinking blocks must be preserved for the duration of an assistant trajectory (a single turn, or if that turn includes a tool_use block then also its subsequent tool_result and the following assistant message)
+ * ### The Rules of Thinking:
  *
- * Heed these rules well, young wizard. For they are the rules of thinking, and
- * the rules of thinking are the rules of the universe. If ye does not heed these
- * rules, ye will be punished with an entire day of debugging and hair pulling.
+ * 1. A message containing a `thinking` or `redacted_thinking` block must be part of a query where `max_thinking_length` > 0.
+ * 2. A `thinking` block cannot be the last message in a block.
+ * 3. `Thinking` blocks must be preserved throughout an assistant's turn, including tool use and results.
+ *
+ * Adherence to these rules is crucial for the proper functioning of the thinking process.
+ *
+ * @param {Message[]} messages - The conversation history.
+ * @param {string[]} systemPrompt - The system prompt to guide the AI model.
+ * @param {{ [k: string]: string }} context - The user's context, including environment and configuration.
+ * @param {CanUseToolFn} canUseTool - A function to check if a tool can be used.
+ * @param {ToolUseContext} toolUseContext - The context for tool usage.
+ * @param {(m1: AssistantMessage, m2: AssistantMessage) => Promise<BinaryFeedbackResult>} [getBinaryFeedbackResponse] - A function to get binary feedback from the user.
+ *
+ * @yields {Message} A message representing the assistant's response or a progress update.
  */
 export async function* query(
   messages: Message[],
@@ -244,6 +321,22 @@ export async function* query(
   )
 }
 
+/**
+ * @async
+ * @generator
+ * @function runToolsConcurrently
+ * @description This function runs multiple tools concurrently, which is useful for improving
+ * performance when multiple tool uses are requested by the AI model. It uses the `all` utility
+ * to manage the concurrent execution of tools.
+ *
+ * @param {ToolUseBlock[]} toolUseMessages - The tool use messages from the assistant.
+ * @param {AssistantMessage} assistantMessage - The assistant message that triggered the tool use.
+ * @param {CanUseToolFn} canUseTool - A function to check if a tool can be used.
+ * @param {ToolUseContext} toolUseContext - The context for the tool use.
+ * @param {boolean} [shouldSkipPermissionCheck] - A flag to skip the permission check.
+ *
+ * @yields {Message} A message representing the result of a tool use or a progress update.
+ */
 async function* runToolsConcurrently(
   toolUseMessages: ToolUseBlock[],
   assistantMessage: AssistantMessage,
@@ -265,7 +358,22 @@ async function* runToolsConcurrently(
     MAX_TOOL_USE_CONCURRENCY,
   )
 }
-
+/**
+ * @async
+ * @generator
+ * @function runToolsSerially
+ * @description This function runs multiple tools serially, one after another. This is used
+ * when tools cannot be run concurrently, for example, if they modify the same state or
+ * have other dependencies.
+ *
+ * @param {ToolUseBlock[]} toolUseMessages - The tool use messages from the assistant.
+ * @param {AssistantMessage} assistantMessage - The assistant message that triggered the tool use.
+ * @param {CanUseToolFn} canUseTool - A function to check if a tool can be used.
+ * @param {ToolUseContext} toolUseContext - The context for the tool use.
+ * @param {boolean} [shouldSkipPermissionCheck] - A flag to skip the permission check.
+ *
+ * @yields {Message} A message representing the result of a tool use or a progress update.
+ */
 async function* runToolsSerially(
   toolUseMessages: ToolUseBlock[],
   assistantMessage: AssistantMessage,
@@ -285,6 +393,23 @@ async function* runToolsSerially(
   }
 }
 
+/**
+ * @async
+ * @generator
+ * @function runToolUse
+ * @description This function executes a single tool use request from the AI model. It finds the
+ * corresponding tool, validates the input, checks for permissions, and then calls the tool's
+ * `run` method. It yields progress and result messages as they become available.
+ *
+ * @param {ToolUseBlock} toolUse - The tool use block from the assistant's message.
+ * @param {Set<string>} siblingToolUseIDs - The IDs of sibling tool uses.
+ * @param {AssistantMessage} assistantMessage - The assistant message that triggered the tool use.
+ * @param {CanUseToolFn} canUseTool - A function to check if a tool can be used.
+ * @param {ToolUseContext} toolUseContext - The context for the tool use.
+ * @param {boolean} [shouldSkipPermissionCheck] - A flag to skip the permission check.
+ *
+ * @yields {Message} A message representing the result of the tool use or a progress update.
+ */
 export async function* runToolUse(
   toolUse: ToolUseBlock,
   siblingToolUseIDs: Set<string>,
@@ -347,6 +472,16 @@ export async function* runToolUse(
   }
 }
 
+/**
+ * @function normalizeToolInput
+ * @description This function normalizes the input for a tool before it is used.
+ * For example, it can remove unnecessary parts of a command for the `BashTool`.
+ * This helps in cleaning up the input and making it more consistent.
+ *
+ * @param {Tool} tool - The tool whose input is to be normalized.
+ * @param {{ [key: string]: boolean | string | number }} input - The input to the tool.
+ * @returns {{ [key: string]: boolean | string | number }} The normalized tool input.
+ */
 // TODO: Generalize this to all tools
 export function normalizeToolInput(
   tool: Tool,
@@ -364,7 +499,25 @@ export function normalizeToolInput(
       return input
   }
 }
-
+/**
+ * @async
+ * @generator
+ * @function checkPermissionsAndCallTool
+ * @description This function checks for permissions to use a tool, and if permission is
+ * granted, it calls the tool. It handles input validation, permission checks, and the
+ * actual execution of the tool.
+ *
+ * @param {Tool} tool - The tool to be called.
+ * @param {string} toolUseID - The ID of the tool use.
+ * @param {Set<string>} siblingToolUseIDs - The IDs of sibling tool uses.
+ * @param {{ [key: string]: boolean | string | number }} input - The input to the tool.
+ * @param {ToolUseContext} context - The context for the tool use.
+ * @param {CanUseToolFn} canUseTool - A function to check if a tool can be used.
+ * @param {AssistantMessage} assistantMessage - The assistant message that triggered the tool use.
+ * @param {boolean} [shouldSkipPermissionCheck] - A flag to skip the permission check.
+ *
+ * @yields {UserMessage | ProgressMessage} A message representing the result of the tool use or a progress update.
+ */
 async function* checkPermissionsAndCallTool(
   tool: Tool,
   toolUseID: string,
@@ -497,6 +650,16 @@ async function* checkPermissionsAndCallTool(
   }
 }
 
+/**
+ * @function formatError
+ * @description This function formats an error object into a string that can be sent to the AI model.
+ * It includes the error message, and if available, the `stderr` and `stdout` of the error.
+ * To avoid sending excessively long error messages, it truncates the message if it exceeds
+ * a certain length.
+ *
+ * @param {unknown} error - The error object to be formatted.
+ * @returns {string} The formatted error string.
+ */
 function formatError(error: unknown): string {
   if (!(error instanceof Error)) {
     return String(error)

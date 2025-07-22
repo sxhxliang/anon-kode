@@ -1,16 +1,33 @@
+/**
+ * @file src/components/Spinner.tsx
+ * @description 该文件定义了 `Spinner` 和 `SimpleSpinner` 组件，它们用于在应用程序
+ * 正在执行后台任务（如等待 API 响应）时，向用户显示一个加载指示器。
+ *
+ * `Spinner` 组件显示一个动画图标、一条随机的加载消息和经过的时间。
+ * `SimpleSpinner` 组件只显示一个简单的动画图标。
+ */
 import { Box, Text } from 'ink'
 import * as React from 'react'
 import { useEffect, useRef, useState } from 'react'
 import { getTheme } from '../utils/theme'
 import { sample } from 'lodash-es'
 import { getSessionState } from '../utils/sessionState'
+/**
+ * @constant {string[]} CHARACTERS
+ * @description 用于旋转器动画的字符数组。
+ * 根据操作系统的不同，会使用不同的字符集，以确保最佳的显示效果。
+ */
 // NB: The third character in this string is an emoji that
 // renders on Windows consoles with a green background
 const CHARACTERS =
   process.platform === 'darwin'
     ? ['·', '✢', '✳', '∗', '✻', '✽']
     : ['·', '✢', '*', '∗', '✻', '✽']
-
+/**
+ * @constant {string[]} MESSAGES
+ * @description 一个包含了各种加载消息的数组。
+ * 在显示旋转器时，会从中随机选择一条消息。
+ */
 const MESSAGES = [
   'Accomplishing',
   'Actioning',
@@ -70,6 +87,12 @@ const MESSAGES = [
   'Working',
 ]
 
+/**
+ * @component Spinner
+ * @description 一个功能齐全的旋转器组件，显示动画、加载消息和经过的时间。
+ *
+ * @returns {React.ReactNode} 渲染后的旋转器组件。
+ */
 export function Spinner(): React.ReactNode {
   const frames = [...CHARACTERS, ...[...CHARACTERS].reverse()]
   const [frame, setFrame] = useState(0)
@@ -108,7 +131,12 @@ export function Spinner(): React.ReactNode {
     </Box>
   )
 }
-
+/**
+ * @component SimpleSpinner
+ * @description 一个简化的旋转器组件，只显示动画图标。
+ *
+ * @returns {React.ReactNode} 渲染后的简化旋转器组件。
+ */
 export function SimpleSpinner(): React.ReactNode {
   const frames = [...CHARACTERS, ...[...CHARACTERS].reverse()]
   const [frame, setFrame] = useState(0)

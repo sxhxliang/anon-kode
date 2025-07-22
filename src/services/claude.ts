@@ -1,3 +1,13 @@
+/**
+ * @file src/services/claude.ts
+ * @description This file provides the service layer for interacting with the Anthropic Claude API.
+ * It handles the creation of the API client, manages authentication, and formats requests
+ * to be sent to the API. It also processes the responses, including handling streaming
+ * data and errors.
+ *
+ * The service abstracts away the complexities of the Claude API, providing a clean and
+ * consistent interface for the rest of the application to use.
+ */
 import '@anthropic-ai/sdk/shims/node'
 import Anthropic, { APIConnectionError, APIError } from '@anthropic-ai/sdk'
 import { AnthropicBedrock } from '@anthropic-ai/bedrock-sdk'
@@ -43,10 +53,18 @@ import { nanoid } from 'nanoid'
 import { getCompletion } from './openai'
 import { getReasoningEffort } from '../utils/thinking'
 
+/**
+ * @interface StreamResponse
+ * @extends APIMessage
+ * @description Represents a response from a streaming API call, including the time to first token.
+ * @property {number} [ttftMs] - The time to first token in milliseconds.
+ */
 interface StreamResponse extends APIMessage {
   ttftMs?: number
 }
-
+/**
+ * @description A collection of constants for API error messages and other fixed strings.
+ */
 export const API_ERROR_MESSAGE_PREFIX = 'API Error'
 export const PROMPT_TOO_LONG_ERROR_MESSAGE = 'Prompt is too long'
 export const CREDIT_BALANCE_TOO_LOW_ERROR_MESSAGE = 'Credit balance is too low'
@@ -54,7 +72,10 @@ export const INVALID_API_KEY_ERROR_MESSAGE =
   'Invalid API key · Please run /login'
 export const NO_CONTENT_MESSAGE = '(no content)'
 const PROMPT_CACHING_ENABLED = !process.env.DISABLE_PROMPT_CACHING
-
+/**
+ * @description Cost per million tokens for different models and operations.
+ * These values are used for tracking the cost of API calls.
+ */
 // @see https://docs.anthropic.com/en/docs/about-claude/models#model-comparison-table
 const HAIKU_COST_PER_MILLION_INPUT_TOKENS = 0.8
 const HAIKU_COST_PER_MILLION_OUTPUT_TOKENS = 4
@@ -65,22 +86,44 @@ const SONNET_COST_PER_MILLION_INPUT_TOKENS = 3
 const SONNET_COST_PER_MILLION_OUTPUT_TOKENS = 15
 const SONNET_COST_PER_MILLION_PROMPT_CACHE_WRITE_TOKENS = 3.75
 const SONNET_COST_PER_MILLION_PROMPT_CACHE_READ_TOKENS = 0.3
-
+/**
+ * @description The temperature setting for the main query, set to 1 to encourage more variation for binary feedback.
+ */
 export const MAIN_QUERY_TEMPERATURE = 1 // to get more variation for binary feedback
-
+/**
+ * @function getMetadata
+ * @description Returns metadata to be sent with API requests, including a unique user ID.
+ * This is useful for tracking and analytics.
+ * @returns {{user_id: string}} The metadata object.
+ */
 function getMetadata() {
   return {
     user_id: `${getOrCreateUserID()}_${SESSION_ID}`,
   }
 }
 
+/**
+ * @description Constants for retry logic, including the maximum number of retries and the base delay between retries.
+ */
 const MAX_RETRIES = process.env.USER_TYPE === 'SWE_BENCH' ? 100 : 10
 const BASE_DELAY_MS = 500
-
+/**
+ * @interface RetryOptions
+ * @description Defines the options for the `withRetry` function.
+ * @property {number} [maxRetries] - The maximum number of times to retry the operation.
+ */
 interface RetryOptions {
   maxRetries?: number
 }
-
+/**
+ * @function getRetryDelay
+ * @description Calculates the delay for the next retry attempt, using an exponential backoff strategy.
+ * It also respects the `retry-after` header from the API response if it is available.
+ *
+ * @param {number} attempt - The current retry attempt number.
+ * @param {string | null} [retryAfterHeader] - The value of the `retry-after` header.
+ * @returns {number} The delay in milliseconds.
+ */
 function getRetryDelay(
   attempt: number,
   retryAfterHeader?: string | null,
@@ -93,7 +136,14 @@ function getRetryDelay(
   }
   return Math.min(BASE_DELAY_MS * Math.pow(2, attempt - 1), 32000) // Max 32s delay
 }
-
+/**
+ * @function shouldRetry
+ * @description Determines whether a failed API request should be retried based on the type of error.
+ * It retries on connection errors, timeouts, rate limits, and server-side internal errors.
+ *
+ * @param {APIError} error - The API error object.
+ * @returns {boolean} `true` if the request should be retried, `false` otherwise.
+ */
 function shouldRetry(error: APIError): boolean {
   // Check for overloaded errors first and only retry for SWE_BENCH
   if (error.message?.includes('"type":"overloaded_error"')) {
@@ -128,6 +178,18 @@ function shouldRetry(error: APIError): boolean {
   return false
 }
 
+/**
+ * @async
+ * @function withRetry
+ * @description A higher-order function that wraps an operation with retry logic.
+ * It will retry the operation up to a specified number of times if it fails with a retryable error.
+ *
+ * @template T
+ * @param {(attempt: number) => Promise<T>} operation - The asynchronous operation to be executed.
+ * @param {RetryOptions} [options={}] - The options for the retry logic.
+ * @returns {Promise<T>} A promise that resolves with the result of the operation if it succeeds.
+ * @throws Will throw the last error encountered if all retry attempts fail.
+ */
 async function withRetry<T>(
   operation: (attempt: number) => Promise<T>,
   options: RetryOptions = {},
@@ -171,6 +233,16 @@ async function withRetry<T>(
   throw lastError
 }
 
+/**
+ * @async
+ * @function verifyApiKey
+ * @description Verifies the validity of an Anthropic API key by making a test request to the API.
+ * This is used during the login process to ensure that the user has provided a valid key.
+ *
+ * @param {string} apiKey - The API key to be verified.
+ * @returns {Promise<boolean>} A promise that resolves to `true` if the key is valid, and `false` otherwise.
+ * @throws Will throw an error if the API request fails for reasons other than an authentication error.
+ */
 export async function verifyApiKey(apiKey: string): Promise<boolean> {
   const anthropic = new Anthropic({
     apiKey,
@@ -213,6 +285,14 @@ export async function verifyApiKey(apiKey: string): Promise<boolean> {
   }
 }
 
+/**
+ * @function convertAnthropicMessagesToOpenAIMessages
+ * @description Converts an array of Anthropic-formatted messages to the format expected by the OpenAI API.
+ * This is necessary for maintaining compatibility between the two different message formats.
+ *
+ * @param {(UserMessage | AssistantMessage)[]} messages - The array of Anthropic messages.
+ * @returns {(OpenAI.ChatCompletionMessageParam | OpenAI.ChatCompletionToolMessageParam)[]} The converted array of OpenAI messages.
+ */
 function convertAnthropicMessagesToOpenAIMessages(
   messages: (UserMessage | AssistantMessage)[],
 ): (
@@ -299,6 +379,15 @@ function convertAnthropicMessagesToOpenAIMessages(
   return finalMessages
 }
 
+/**
+ * @function messageReducer
+ * @description A reducer function that accumulates delta chunks from an OpenAI chat completion stream into a single message object.
+ * This is used to reconstruct the full message from the streaming response.
+ *
+ * @param {OpenAI.ChatCompletionMessage} previous - The accumulated message object from the previous reduction.
+ * @param {OpenAI.ChatCompletionChunk} item - The current chunk from the stream.
+ * @returns {OpenAI.ChatCompletionMessage} The updated message object.
+ */
 function messageReducer(
   previous: OpenAI.ChatCompletionMessage,
   item: OpenAI.ChatCompletionChunk,
@@ -343,6 +432,14 @@ function messageReducer(
   }
   return reduce(previous, choice.delta) as OpenAI.ChatCompletionMessage
 }
+/**
+ * @async
+ * @function handleMessageStream
+ * @description Handles a chat completion stream from the OpenAI API, accumulating the chunks into a single chat completion object.
+ *
+ * @param {ChatCompletionStream} stream - The chat completion stream to handle.
+ * @returns {Promise<OpenAI.ChatCompletion>} A promise that resolves to the complete chat completion object.
+ */
 async function handleMessageStream(
   stream: ChatCompletionStream,
 ): Promise<OpenAI.ChatCompletion> {
@@ -390,6 +487,14 @@ async function handleMessageStream(
   }
 }
 
+/**
+ * @function convertOpenAIResponseToAnthropic
+ * @description Converts a response from the OpenAI API to the format expected by the Anthropic API.
+ * This is necessary for maintaining compatibility between the two different response formats.
+ *
+ * @param {OpenAI.ChatCompletion} response - The response object from the OpenAI API.
+ * @returns {object} The converted response object in Anthropic format.
+ */
 function convertOpenAIResponseToAnthropic(response: OpenAI.ChatCompletion) {
   let contentBlocks: ContentBlock[] = []
   const message = response.choices?.[0]?.message
@@ -462,9 +567,20 @@ function convertOpenAIResponseToAnthropic(response: OpenAI.ChatCompletion) {
   return finalMessage
 }
 
+/**
+ * @description A singleton instance of the Anthropic client, which can be of type `Anthropic`, `AnthropicBedrock`, or `AnthropicVertex`.
+ * @type {(Anthropic | AnthropicBedrock | AnthropicVertex | null)}
+ */
 let anthropicClient: Anthropic | AnthropicBedrock | AnthropicVertex | null =
   null
-
+/**
+ * @function getAnthropicClient
+ * @description Gets the singleton instance of the Anthropic client, creating it if it doesn't exist.
+ * It determines which type of client to create based on environment variables.
+ *
+ * @param {string} [model] - The model to be used, which can influence the client creation (e.g., for Vertex AI region).
+ * @returns {(Anthropic | AnthropicBedrock | AnthropicVertex)} The Anthropic client instance.
+ */
 /**
  * Get the Anthropic client, creating it if it doesn't exist
  */
@@ -524,12 +640,21 @@ export function getAnthropicClient(
 }
 
 /**
+ * @function resetAnthropicClient
+ * @description Resets the singleton Anthropic client instance to null.
+ * This forces a new client to be created on the next call to `getAnthropicClient`,
+ * which is useful when authentication credentials or other settings have changed.
+ */
+/**
  * Reset the Anthropic client to null, forcing a new client to be created on next use
  */
 export function resetAnthropicClient(): void {
   anthropicClient = null
 }
-
+/**
+ * @description Documentation for environment variables used to configure different client types.
+ * This provides a clear guide for users on how to set up the application for different environments.
+ */
 /**
  * Environment variables for different client types:
  *
@@ -555,7 +680,15 @@ export function resetAnthropicClient(): void {
  * 3. Default region from config
  * 4. Fallback region (us-east5)
  */
-
+/**
+ * @function userMessageToMessageParam
+ * @description Converts a `UserMessage` object to the `MessageParam` format expected by the API.
+ * It can also add cache control headers for prompt caching if enabled.
+ *
+ * @param {UserMessage} message - The user message to be converted.
+ * @param {boolean} [addCache=false] - A flag to add cache control headers.
+ * @returns {MessageParam} The converted message parameter.
+ */
 export function userMessageToMessageParam(
   message: UserMessage,
   addCache = false,
@@ -594,6 +727,15 @@ export function userMessageToMessageParam(
   }
 }
 
+/**
+ * @function assistantMessageToMessageParam
+ * @description Converts an `AssistantMessage` object to the `MessageParam` format expected by the API.
+ * It can also add cache control headers for prompt caching if enabled.
+ *
+ * @param {AssistantMessage} message - The assistant message to be converted.
+ * @param {boolean} [addCache=false] - A flag to add cache control headers.
+ * @returns {MessageParam} The converted message parameter.
+ */
 export function assistantMessageToMessageParam(
   message: AssistantMessage,
   addCache = false,
@@ -634,6 +776,14 @@ export function assistantMessageToMessageParam(
   }
 }
 
+/**
+ * @function splitSysPromptPrefix
+ * @description Splits the system prompt into a prefix and the rest of the prompt.
+ * This is used for API-side prefix matching for analytics and configuration.
+ *
+ * @param {string[]} systemPrompt - The system prompt to be split.
+ * @returns {string[]} An array containing the prefix and the rest of the prompt.
+ */
 function splitSysPromptPrefix(systemPrompt: string[]): string[] {
   // split out the first block of the system prompt as the "prefix" for API
   // to match on in https://console.statsig.com/4aF3Ewatb6xPVpCwxb5nA3/dynamic_configs/claude_cli_system_prompt_prefixes
@@ -641,7 +791,20 @@ function splitSysPromptPrefix(systemPrompt: string[]): string[] {
   const systemPromptRest = systemPrompt.slice(1)
   return [systemPromptFirstBlock, systemPromptRest.join('\n')].filter(Boolean)
 }
-
+/**
+ * @async
+ * @function querySonnet
+ * @description Queries the Sonnet model with the given messages and system prompt.
+ * It uses the `withVCR` higher-order function to handle request caching and playback.
+ *
+ * @param {(UserMessage | AssistantMessage)[]} messages - The conversation history.
+ * @param {string[]} systemPrompt - The system prompt.
+ * @param {number} maxThinkingTokens - The maximum number of tokens to use for thinking.
+ * @param {Tool[]} tools - The available tools.
+ * @param {AbortSignal} signal - The abort signal for cancelling the request.
+ * @param {object} options - Additional options for the query.
+ * @returns {Promise<AssistantMessage>} A promise that resolves to the assistant's response.
+ */
 export async function querySonnet(
   messages: (UserMessage | AssistantMessage)[],
   systemPrompt: string[],
@@ -666,6 +829,15 @@ export async function querySonnet(
   )
 }
 
+/**
+ * @function formatSystemPromptWithContext
+ * @description Formats the system prompt by adding the user's context to it.
+ * The context is provided as a set of key-value pairs, which are formatted into XML-like tags.
+ *
+ * @param {string[]} systemPrompt - The base system prompt.
+ * @param {{ [k: string]: string }} context - The user's context.
+ * @returns {string[]} The formatted system prompt with context.
+ */
 export function formatSystemPromptWithContext(
   systemPrompt: string[],
   context: { [k: string]: string },
@@ -682,7 +854,19 @@ export function formatSystemPromptWithContext(
     ),
   ]
 }
-
+/**
+ * @async
+ * @function querySonnetWithPromptCaching
+ * @description A helper function that queries the Sonnet model, with support for prompt caching.
+ *
+ * @param {(UserMessage | AssistantMessage)[]} messages - The conversation history.
+ * @param {string[]} systemPrompt - The system prompt.
+ * @param {number} maxThinkingTokens - The maximum number of tokens to use for thinking.
+ * @param {Tool[]} tools - The available tools.
+ * @param {AbortSignal} signal - The abort signal for cancelling the request.
+ * @param {object} options - Additional options for the query.
+ * @returns {Promise<AssistantMessage>} A promise that resolves to the assistant's response.
+ */
 async function querySonnetWithPromptCaching(
   messages: (UserMessage | AssistantMessage)[],
   systemPrompt: string[],
@@ -706,6 +890,14 @@ async function querySonnetWithPromptCaching(
   )
 }
 
+/**
+ * @function getAssistantMessageFromError
+ * @description Creates an assistant message from an error object.
+ * This is used to display user-friendly error messages when the API returns an error.
+ *
+ * @param {unknown} error - The error object.
+ * @returns {AssistantMessage} The created assistant message.
+ */
 function getAssistantMessageFromError(error: unknown): AssistantMessage {
   if (error instanceof Error && error.message.includes('prompt is too long')) {
     return createAssistantAPIErrorMessage(PROMPT_TOO_LONG_ERROR_MESSAGE)
@@ -732,7 +924,14 @@ function getAssistantMessageFromError(error: unknown): AssistantMessage {
   }
   return createAssistantAPIErrorMessage(API_ERROR_MESSAGE_PREFIX)
 }
-
+/**
+ * @function addCacheBreakpoints
+ * @description Adds cache control headers to messages to enable prompt caching.
+ * This can help reduce latency and cost for repeated prompts.
+ *
+ * @param {(UserMessage | AssistantMessage)[]} messages - The messages to add cache breakpoints to.
+ * @returns {MessageParam[]} The messages with cache control headers.
+ */
 function addCacheBreakpoints(
   messages: (UserMessage | AssistantMessage)[],
 ): MessageParam[] {
@@ -743,6 +942,22 @@ function addCacheBreakpoints(
   })
 }
 
+/**
+ * @async
+ * @function queryOpenAI
+ * @description This is the main function for querying the OpenAI API. It constructs the request,
+ * sends it to the API, and processes the response. It also handles tool usage, prompt caching,
+ * and error handling.
+ *
+ * @param {('large' | 'small')} modelType - The type of model to use ('large' or 'small').
+ * @param {(UserMessage | AssistantMessage)[]} messages - The conversation history.
+ * @param {string[]} systemPrompt - The system prompt.
+ * @param {number} maxThinkingTokens - The maximum number of tokens to use for thinking.
+ * @param {Tool[]} tools - The available tools.
+ * @param {AbortSignal} signal - The abort signal for cancelling the request.
+ * @param {object} [options] - Additional options for the query.
+ * @returns {Promise<AssistantMessage>} A promise that resolves to the assistant's response.
+ */
 async function queryOpenAI(
   modelType: 'large' | 'small',
   messages: (UserMessage | AssistantMessage)[],
@@ -900,6 +1115,20 @@ async function queryOpenAI(
   }
 }
 
+/**
+ * @async
+ * @function queryHaiku
+ * @description A convenience function for querying the Haiku model with a simple user prompt.
+ * It is designed for simple, one-off queries where a full conversation history is not needed.
+ *
+ * @param {object} params - The parameters for the query.
+ * @param {string[]} [params.systemPrompt=[]] - The system prompt.
+ * @param {string} params.userPrompt - The user's prompt.
+ * @param {string} [params.assistantPrompt] - An optional assistant prompt.
+ * @param {boolean} [params.enablePromptCaching=false] - A flag to enable prompt caching.
+ * @param {AbortSignal} [params.signal] - The abort signal for cancelling the request.
+ * @returns {Promise<AssistantMessage>} A promise that resolves to the assistant's response.
+ */
 export async function queryHaiku({
   systemPrompt = [],
   userPrompt,
@@ -941,6 +1170,14 @@ export async function queryHaiku({
     },
   )
 }
+/**
+ * @function getMaxTokensForModelType
+ * @description Gets the maximum number of tokens for a given model type from the global configuration.
+ * This is used to set the `max_tokens` parameter in API requests.
+ *
+ * @param {('large' | 'small')} modelType - The type of model.
+ * @returns {number} The maximum number of tokens.
+ */
 function getMaxTokensForModelType(modelType: 'large' | 'small'): number {
   const config = getGlobalConfig()
 

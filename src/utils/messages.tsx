@@ -1,3 +1,15 @@
+/**
+ * @file src/utils/messages.tsx
+ * @description 该文件提供了一系列用于创建、处理和规范化对话消息的工具函数。
+ * 它定义了不同类型的消息（用户、助手、进度），并提供了创建这些消息的工厂函数。
+ *
+ * 主要功能包括：
+ * - 定义消息中使用的常量，如中断消息、取消消息等。
+ * - 创建不同类型的消息对象的函数。
+ * - 处理用户输入的函数，将其转换为适当的消息格式。
+ * - 从消息中提取特定标签内容的函数。
+ * - 规范化和重新排序消息列表的函数，以便在 UI 中正确显示和发送到 API。
+ */
 import { randomUUID, UUID } from 'crypto'
 import { Box } from 'ink'
 import {
@@ -33,6 +45,10 @@ import { Spinner } from '../components/Spinner'
 import { BashTool } from '../tools/BashTool/BashTool'
 import { ToolUseBlock } from '@anthropic-ai/sdk/resources/index.mjs'
 
+/**
+ * @description 定义了在对话中使用的各种常量消息。
+ * 这些消息用于表示用户中断、取消操作、拒绝工具使用等特殊情况。
+ */
 export const INTERRUPT_MESSAGE = '[Request interrupted by user]'
 export const INTERRUPT_MESSAGE_FOR_TOOL_USE =
   '[Request interrupted by user for tool use]'
@@ -41,7 +57,10 @@ export const CANCEL_MESSAGE =
 export const REJECT_MESSAGE =
   "The user doesn't want to proceed with this tool use. The tool use was rejected (eg. if it was a file edit, the new_string was NOT written to the file). STOP what you are doing and wait for the user to tell you how to proceed."
 export const NO_RESPONSE_REQUESTED = 'No response requested.'
-
+/**
+ * @constant {Set<string>} SYNTHETIC_ASSISTANT_MESSAGES
+ * @description 一个包含了所有合成（非 AI 生成）的助手消息的集合。
+ */
 export const SYNTHETIC_ASSISTANT_MESSAGES = new Set([
   INTERRUPT_MESSAGE,
   INTERRUPT_MESSAGE_FOR_TOOL_USE,
@@ -50,6 +69,14 @@ export const SYNTHETIC_ASSISTANT_MESSAGES = new Set([
   NO_RESPONSE_REQUESTED,
 ])
 
+/**
+ * @function baseCreateAssistantMessage
+ * @description 创建一个基础的助手消息对象。
+ *
+ * @param {ContentBlock[]} content - 消息的内容块。
+ * @param {Partial<AssistantMessage>} [extra] - 额外的助手消息属性。
+ * @returns {AssistantMessage} 创建的助手消息。
+ */
 function baseCreateAssistantMessage(
   content: ContentBlock[],
   extra?: Partial<AssistantMessage>,
@@ -77,7 +104,13 @@ function baseCreateAssistantMessage(
     ...extra,
   }
 }
-
+/**
+ * @function createAssistantMessage
+ * @description 创建一个标准的助手消息。
+ *
+ * @param {string} content - 消息的文本内容。
+ * @returns {AssistantMessage} 创建的助手消息。
+ */
 export function createAssistantMessage(content: string): AssistantMessage {
   return baseCreateAssistantMessage([
     {
@@ -87,7 +120,13 @@ export function createAssistantMessage(content: string): AssistantMessage {
     },
   ])
 }
-
+/**
+ * @function createAssistantAPIErrorMessage
+ * @description 创建一个表示 API 错误的助手消息。
+ *
+ * @param {string} content - 错误的文本内容。
+ * @returns {AssistantMessage} 创建的错误消息。
+ */
 export function createAssistantAPIErrorMessage(
   content: string,
 ): AssistantMessage {
@@ -103,11 +142,24 @@ export function createAssistantAPIErrorMessage(
   )
 }
 
+/**
+ * @typedef {object} FullToolUseResult
+ * @description 表示工具使用的完整结果。
+ * @property {unknown} data - 工具的输出数据。
+ * @property {ToolResultBlockParam['content']} resultForAssistant - 为助手格式化的结果。
+ */
 export type FullToolUseResult = {
   data: unknown // Matches tool's `Output` type
   resultForAssistant: ToolResultBlockParam['content']
 }
-
+/**
+ * @function createUserMessage
+ * @description 创建一个用户消息。
+ *
+ * @param {string | ContentBlockParam[]} content - 消息的内容。
+ * @param {FullToolUseResult} [toolUseResult] - 工具使用的结果。
+ * @returns {UserMessage} 创建的用户消息。
+ */
 export function createUserMessage(
   content: string | ContentBlockParam[],
   toolUseResult?: FullToolUseResult,
@@ -123,7 +175,17 @@ export function createUserMessage(
   }
   return m
 }
-
+/**
+ * @function createProgressMessage
+ * @description 创建一个进度消息，用于在工具执行期间向用户显示反馈。
+ *
+ * @param {string} toolUseID - 工具使用的 ID。
+ * @param {Set<string>} siblingToolUseIDs - 同级工具使用的 ID 集合。
+ * @param {AssistantMessage} content - 进度消息的内容。
+ * @param {NormalizedMessage[]} normalizedMessages - 规范化后的消息列表。
+ * @param {Tool[]} tools - 可用的工具列表。
+ * @returns {ProgressMessage} 创建的进度消息。
+ */
 export function createProgressMessage(
   toolUseID: string,
   siblingToolUseIDs: Set<string>,
@@ -141,7 +203,13 @@ export function createProgressMessage(
     uuid: randomUUID(),
   }
 }
-
+/**
+ * @function createToolResultStopMessage
+ * @description 创建一个表示工具使用被取消的结果消息。
+ *
+ * @param {string} toolUseID - 工具使用的 ID。
+ * @returns {ToolResultBlockParam} 创建的工具结果块。
+ */
 export function createToolResultStopMessage(
   toolUseID: string,
 ): ToolResultBlockParam {
@@ -153,6 +221,18 @@ export function createToolResultStopMessage(
   }
 }
 
+/**
+ * @async
+ * @function processUserInput
+ * @description 处理用户的输入，根据当前的模式（bash、prompt 或 koding）将其转换为适当的消息。
+ *
+ * @param {string} input - 用户的输入字符串。
+ * @param {('bash' | 'prompt' | 'koding')} mode - 当前的输入模式。
+ * @param {SetToolJSXFn} setToolJSX - 用于设置自定义 JSX 的函数。
+ * @param {ToolUseContext & { ... }} context - 工具使用的上下文。
+ * @param {string | null} pastedImage - 粘贴的图片的 base64 编码。
+ * @returns {Promise<Message[]>} 一个包含已处理消息的数组。
+ */
 export async function processUserInput(
   input: string,
   mode: 'bash' | 'prompt' | 'koding',
@@ -358,6 +438,18 @@ export async function processUserInput(
   return [userMessage]
 }
 
+/**
+ * @async
+ * @function getMessagesForSlashCommand
+ * @description 为斜杠命令生成消息。
+ * 根据命令的类型（local-jsx、local 或 prompt），它会执行相应的操作并返回一个消息数组。
+ *
+ * @param {string} commandName - 命令的名称。
+ * @param {string} args - 命令的参数。
+ * @param {SetToolJSXFn} setToolJSX - 用于设置自定义 JSX 的函数。
+ * @param {ToolUseContext & { ... }} context - 工具使用的上下文。
+ * @returns {Promise<Message[]>} 一个包含已生成消息的数组。
+ */
 async function getMessagesForSlashCommand(
   commandName: string,
   args: string,
@@ -477,6 +569,14 @@ async function getMessagesForSlashCommand(
   }
 }
 
+/**
+ * @function extractTagFromMessage
+ * @description 从消息中提取指定标签的内容。
+ *
+ * @param {Message} message - 要从中提取内容的消息。
+ * @param {string} tagName - 要提取的标签的名称。
+ * @returns {string | null} 标签的内容，或在未找到时返回 `null`。
+ */
 export function extractTagFromMessage(
   message: Message,
   tagName: string,
@@ -489,7 +589,15 @@ export function extractTagFromMessage(
   }
   return extractTag(message.message.content, tagName)
 }
-
+/**
+ * @function extractTag
+ * @description 从一个类似 HTML 的字符串中提取指定标签的内容。
+ * 它支持自闭合标签、带属性的标签、嵌套标签和多行内容。
+ *
+ * @param {string} html - 要从中提取内容的字符串。
+ * @param {string} tagName - 要提取的标签的名称。
+ * @returns {string | null} 标签的内容，或在未找到时返回 `null`。
+ */
 export function extractTag(html: string, tagName: string): string | null {
   if (!html.trim() || !tagName.trim()) {
     return null
@@ -547,6 +655,14 @@ export function extractTag(html: string, tagName: string): string | null {
   return null
 }
 
+/**
+ * @function isNotEmptyMessage
+ * @description 检查一条消息是否不为空。
+ * 空消息是指那些只包含空白字符或特定系统消息（如 `NO_CONTENT_MESSAGE`）的消息。
+ *
+ * @param {Message} message - 要检查的消息。
+ * @returns {boolean} 如果消息不为空，则返回 `true`。
+ */
 export function isNotEmptyMessage(message: Message): boolean {
   if (message.type === 'progress') {
     return true
@@ -576,6 +692,10 @@ export function isNotEmptyMessage(message: Message): boolean {
   )
 }
 
+/**
+ * @typedef {object} NormalizedUserMessage
+ * @description 规范化后的用户消息类型。
+ */
 // TODO: replace this with plain UserMessage if/when PR #405 lands
 type NormalizedUserMessage = {
   message: {
@@ -590,12 +710,22 @@ type NormalizedUserMessage = {
   type: 'user'
   uuid: UUID
 }
-
+/**
+ * @typedef {NormalizedUserMessage | AssistantMessage | ProgressMessage} NormalizedMessage
+ * @description 规范化后的消息的联合类型。
+ */
 export type NormalizedMessage =
   | NormalizedUserMessage
   | AssistantMessage
   | ProgressMessage
-
+/**
+ * @function normalizeMessages
+ * @description 将消息列表规范化，将包含多个内容块的消息拆分为多个单独的消息。
+ * 这使得在 UI 中渲染和处理消息变得更加容易。
+ *
+ * @param {Message[]} messages - 要规范化的消息列表。
+ * @returns {NormalizedMessage[]} 规范化后的消息列表。
+ */
 // Split messages, so each content block gets its own message
 export function normalizeMessages(messages: Message[]): NormalizedMessage[] {
   return messages.flatMap(message => {
@@ -636,10 +766,20 @@ export function normalizeMessages(messages: Message[]): NormalizedMessage[] {
   })
 }
 
+/**
+ * @typedef {AssistantMessage & { message: { content: ToolUseBlock[] } }} ToolUseRequestMessage
+ * @description 表示一个请求使用工具的助手消息。
+ */
 type ToolUseRequestMessage = AssistantMessage & {
   message: { content: ToolUseBlock[] }
 }
-
+/**
+ * @function isToolUseRequestMessage
+ * @description 检查一条消息是否是请求使用工具的助手消息。
+ *
+ * @param {Message} message - 要检查的消息。
+ * @returns {message is ToolUseRequestMessage} 如果是工具使用请求消息，则返回 `true`。
+ */
 function isToolUseRequestMessage(
   message: Message,
 ): message is ToolUseRequestMessage {
@@ -650,7 +790,14 @@ function isToolUseRequestMessage(
     message.message.content.some(_ => _.type === 'tool_use')
   )
 }
-
+/**
+ * @function reorderMessages
+ * @description 重新排序消息列表，以确保工具结果消息紧跟在相应的工具使用消息之后。
+ * 这对于在 UI 中正确地显示对话流程至关重要。
+ *
+ * @param {NormalizedMessage[]} messages - 要重新排序的消息列表。
+ * @returns {NormalizedMessage[]} 重新排序后的消息列表。
+ */
 // Re-order, to move result messages to be after their tool use messages
 export function reorderMessages(
   messages: NormalizedMessage[],
@@ -721,6 +868,14 @@ export function reorderMessages(
   return ms
 }
 
+/**
+ * @function getToolResultIDs
+ * @description 获取一个包含了所有工具结果 ID 及其是否为错误的映射。
+ * 这是一个 memoized 函数，以提高性能。
+ *
+ * @param {NormalizedMessage[]} normalizedMessages - 规范化后的消息列表。
+ * @returns {{ [toolUseID: string]: boolean }} 一个从工具使用 ID 到布尔值（表示是否为错误）的映射。
+ */
 const getToolResultIDs = memoize(
   (normalizedMessages: NormalizedMessage[]): { [toolUseID: string]: boolean } =>
     Object.fromEntries(
@@ -736,7 +891,13 @@ const getToolResultIDs = memoize(
       ),
     ),
 )
-
+/**
+ * @function getUnresolvedToolUseIDs
+ * @description 获取所有尚未解决的工具使用的 ID。
+ *
+ * @param {NormalizedMessage[]} normalizedMessages - 规范化后的消息列表。
+ * @returns {Set<string>} 一个包含未解决工具使用 ID 的集合。
+ */
 export function getUnresolvedToolUseIDs(
   normalizedMessages: NormalizedMessage[],
 ): Set<string> {
@@ -758,6 +919,14 @@ export function getUnresolvedToolUseIDs(
   )
 }
 
+/**
+ * @function getInProgressToolUseIDs
+ * @description 获取所有正在进行中的工具使用的 ID。
+ * 一个工具使用被认为是“进行中”的，如果它有对应的进度消息但没有结果消息，或者如果它是第一个未解决的工具使用。
+ *
+ * @param {NormalizedMessage[]} normalizedMessages - 规范化后的消息列表。
+ * @returns {Set<string>} 一个包含进行中工具使用 ID 的集合。
+ */
 /**
  * Tool uses are in flight if either:
  * 1. They have a corresponding progress message and no result message
@@ -799,6 +968,13 @@ export function getInProgressToolUseIDs(
   )
 }
 
+/**
+ * @function getErroredToolUseMessages
+ * @description 获取所有导致错误的工具使用的助手消息。
+ *
+ * @param {NormalizedMessage[]} normalizedMessages - 规范化后的消息列表。
+ * @returns {AssistantMessage[]} 一个包含导致错误的工具使用的助手消息的数组。
+ */
 export function getErroredToolUseMessages(
   normalizedMessages: NormalizedMessage[],
 ): AssistantMessage[] {
@@ -812,7 +988,14 @@ export function getErroredToolUseMessages(
       toolResults[_.message.content[0]?.id],
   ) as AssistantMessage[]
 }
-
+/**
+ * @function normalizeMessagesForAPI
+ * @description 为发送到 API 而规范化消息列表。
+ * 它会合并连续的工具结果消息，以符合 API 的要求。
+ *
+ * @param {Message[]} messages - 要规范化的消息列表。
+ * @returns {(UserMessage | AssistantMessage)[]} 规范化后的消息列表。
+ */
 export function normalizeMessagesForAPI(
   messages: Message[],
 ): (UserMessage | AssistantMessage)[] {
@@ -864,6 +1047,13 @@ export function normalizeMessagesForAPI(
   return result
 }
 
+/**
+ * @function normalizeContentFromAPI
+ * @description 规范化从 API 返回的内容，过滤掉空消息。
+ *
+ * @param {APIMessage['content']} content - 从 API 返回的内容。
+ * @returns {APIMessage['content']} 规范化后的内容。
+ */
 // Sometimes the API returns empty messages (eg. "\n\n"). We need to filter these out,
 // otherwise they will give an API error when we send them to the API next time we call query().
 export function normalizeContentFromAPI(
@@ -879,25 +1069,48 @@ export function normalizeContentFromAPI(
 
   return filteredContent
 }
-
+/**
+ * @function isEmptyMessageText
+ * @description 检查消息文本是否为空。
+ *
+ * @param {string} text - 要检查的文本。
+ * @returns {boolean} 如果文本为空，则返回 `true`。
+ */
 export function isEmptyMessageText(text: string): boolean {
   return (
     stripSystemMessages(text).trim() === '' ||
     text.trim() === NO_CONTENT_MESSAGE
   )
 }
+/**
+ * @constant {string[]} STRIPPED_TAGS
+ * @description 一个包含了在显示给用户之前需要从消息中剥离的系统标签的数组。
+ */
 const STRIPPED_TAGS = [
   'commit_analysis',
   'context',
   'function_analysis',
   'pr_analysis',
 ]
-
+/**
+ * @function stripSystemMessages
+ * @description 从内容中剥离所有系统消息标签。
+ *
+ * @param {string} content - 要处理的内容。
+ * @returns {string} 剥离了系统消息后的内容。
+ */
 export function stripSystemMessages(content: string): string {
   const regex = new RegExp(`<(${STRIPPED_TAGS.join('|')})>.*?</\\1>\n?`, 'gs')
   return content.replace(regex, '').trim()
 }
 
+/**
+ * @function getToolUseID
+ * @description 从一条消息中获取工具使用的 ID。
+ *
+ * @param {NormalizedMessage} message - 要从中获取 ID 的消息。
+ * @returns {string | null} 工具使用的 ID，或在消息不是工具使用或结果时返回 `null`。
+ */
 export function getToolUseID(message: NormalizedMessage): string | null {
   switch (message.type) {
     case 'assistant':
@@ -914,7 +1127,13 @@ export function getToolUseID(message: NormalizedMessage): string | null {
       return message.toolUseID
   }
 }
-
+/**
+ * @function getLastAssistantMessageId
+ * @description 获取最后一条助手消息的 ID。
+ *
+ * @param {Message[]} messages - 消息列表。
+ * @returns {string | undefined} 最后一条助手消息的 ID，或在未找到时返回 `undefined`。
+ */
 export function getLastAssistantMessageId(
   messages: Message[],
 ): string | undefined {

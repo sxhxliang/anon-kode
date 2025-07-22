@@ -1,3 +1,14 @@
+/**
+ * @file src/permissions.ts
+ * @description 该文件负责处理与工具使用相关的权限。
+ * 它定义了检查、授予和保存工具权限的逻辑。
+ *
+ * 主要功能包括：
+ * - 检查一个命令是否是安全的，不需要权限。
+ * - 检查一个工具（特别是 BashTool）是否有权限执行给定的命令。
+ * - 提供一个 `hasPermissionsToUseTool` 函数，用于在工具被调用之前检查权限。
+ * - 保存用户授予的权限，以便在将来的会话中使用。
+ */
 import type { CanUseToolFn } from './hooks/useCanUseTool'
 import { Tool, ToolUseContext } from './Tool'
 import { BashTool, inputSchema } from './tools/BashTool/BashTool'
@@ -15,6 +26,11 @@ import { grantWritePermissionForOriginalDir } from './utils/permissions/filesyst
 import { getCwd } from './utils/state'
 import { PRODUCT_NAME } from './constants/product'
 
+/**
+ * @constant {Set<string>} SAFE_COMMANDS
+ * @description 一个已知可以安全执行的命令的集合。
+ * 这些命令是只读的，不会对用户的文件系统或状态进行任何修改。
+ */
 // Commands that are known to be safe for execution
 const SAFE_COMMANDS = new Set([
   'git status',
@@ -26,7 +42,16 @@ const SAFE_COMMANDS = new Set([
   'date',
   'which',
 ])
-
+/**
+ * @function bashToolCommandHasExactMatchPermission
+ * @description 检查一个 `BashTool` 命令是否有精确匹配的权限。
+ * 这包括检查命令是否在安全命令列表中，或者是否在允许的工具列表中有精确的匹配。
+ *
+ * @param {Tool} tool - 要检查的工具（应该是 `BashTool`）。
+ * @param {string} command - 要检查的命令。
+ * @param {string[]} allowedTools - 允许的工具列表。
+ * @returns {boolean} 如果有精确匹配的权限，则返回 `true`；否则返回 `false`。
+ */
 export const bashToolCommandHasExactMatchPermission = (
   tool: Tool,
   command: string,
@@ -46,6 +71,16 @@ export const bashToolCommandHasExactMatchPermission = (
   return false
 }
 
+/**
+ * @function bashToolCommandHasPermission
+ * @description 检查一个 `BashTool` 命令是否有权限执行，包括前缀匹配。
+ *
+ * @param {Tool} tool - 要检查的工具。
+ * @param {string} command - 要检查的命令。
+ * @param {string | null} prefix - 命令的前缀。
+ * @param {string[]} allowedTools - 允许的工具列表。
+ * @returns {boolean} 如果有权限，则返回 `true`；否则返回 `false`。
+ */
 export const bashToolCommandHasPermission = (
   tool: Tool,
   command: string,
@@ -58,7 +93,18 @@ export const bashToolCommandHasPermission = (
   }
   return allowedTools.includes(getPermissionKey(tool, { command }, prefix))
 }
-
+/**
+ * @async
+ * @function bashToolHasPermission
+ * @description 检查 `BashTool` 是否有权限执行一个完整的命令，包括其所有子命令。
+ *
+ * @param {Tool} tool - 要检查的工具。
+ * @param {string} command - 要检查的命令。
+ * @param {ToolUseContext} context - 工具使用的上下文。
+ * @param {string[]} allowedTools - 允许的工具列表。
+ * @param {typeof getCommandSubcommandPrefix} [getCommandSubcommandPrefixFn] - 用于获取命令前缀的函数。
+ * @returns {Promise<PermissionResult>} 一个 `PermissionResult` 对象，指示是否有权限。
+ */
 export const bashToolHasPermission = async (
   tool: Tool,
   command: string,
@@ -150,8 +196,25 @@ export const bashToolHasPermission = async (
   }
 }
 
+/**
+ * @typedef {object} PermissionResult
+ * @description 表示权限检查的结果。
+ * @property {boolean} result - `true` 表示有权限，`false` 表示没有权限。
+ * @property {string} [message] - 如果没有权限，则包含一条消息，解释原因。
+ */
 type PermissionResult = { result: true } | { result: false; message: string }
-
+/**
+ * @async
+ * @function hasPermissionsToUseTool
+ * @description 这是一个 `CanUseToolFn` 的实现，用于在工具被调用之前检查权限。
+ * 它处理不同工具的特定权限逻辑。
+ *
+ * @param {Tool} tool - 要检查的工具。
+ * @param {unknown} input - 工具的输入。
+ * @param {ToolUseContext} context - 工具使用的上下文。
+ * @param {AssistantMessage} _assistantMessage - 触发工具使用的助手消息。
+ * @returns {Promise<PermissionResult>} 一个 `PermissionResult` 对象，指示是否有权限。
+ */
 export const hasPermissionsToUseTool: CanUseToolFn = async (
   tool,
   input,
@@ -222,6 +285,18 @@ export const hasPermissionsToUseTool: CanUseToolFn = async (
   }
 }
 
+/**
+ * @async
+ * @function savePermission
+ * @description 保存用户授予的工具使用权限。
+ * 对于文件编辑工具，权限仅在内存中保存（会话期间有效）。
+ * 对于其他工具，权限被保存在项目配置文件中，以便持久化。
+ *
+ * @param {Tool} tool - 要保存权限的工具。
+ * @param {{ [k: string]: unknown }} input - 工具的输入。
+ * @param {string | null} prefix - 命令的前缀（仅适用于 `BashTool`）。
+ * @returns {Promise<void>}
+ */
 export async function savePermission(
   tool: Tool,
   input: { [k: string]: unknown },
@@ -250,7 +325,16 @@ export async function savePermission(
 
   saveCurrentProjectConfig(projectConfig)
 }
-
+/**
+ * @function getPermissionKey
+ * @description 为给定的工具和输入生成一个唯一的权限键。
+ * 这个键用于在配置中存储和检索权限。
+ *
+ * @param {Tool} tool - 工具。
+ * @param {{ [k: string]: unknown }} input - 工具的输入。
+ * @param {string | null} prefix - 命令的前缀。
+ * @returns {string} 生成的权限键。
+ */
 function getPermissionKey(
   tool: Tool,
   input: { [k: string]: unknown },
