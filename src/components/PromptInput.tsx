@@ -1,3 +1,16 @@
+/**
+ * @file src/components/PromptInput.tsx
+ * @description 该文件定义了 `PromptInput` 组件，它是应用程序的核心用户输入组件。
+ * 它负责处理用户的文本输入、命令输入、模式切换（prompt、bash、koding），并与应用程序的
+ * 其他部分进行交互以执行命令和查询。
+ *
+ * `PromptInput` 组件集成了许多功能，包括：
+ * - 文本输入和编辑。
+ * - 命令历史记录导航。
+ * - 斜杠命令的自动完成和建议。
+ * - 粘贴图片和文本的处理。
+ * - 加载状态和禁用状态的管理。
+ */
 import { Box, Text, useInput } from 'ink'
 import { sample } from 'lodash-es'
 import { getExampleCommands } from '../utils/exampleCommands'
@@ -25,6 +38,16 @@ import terminalSetup, {
   handleHashCommand,
 } from '../commands/terminalSetup'
 
+/**
+ * @async
+ * @function interpretHashCommand
+ * @description 使用 AI 解释 `#` 命令的输入。
+ * 这个函数会将用户的原始笔记发送给 AI 模型，并要求其将其格式化为结构良好的笔记，
+ * 以便添加到 `KODING.md` 文件中。
+ *
+ * @param {string} input - 用户的原始输入。
+ * @returns {Promise<string>} 经过 AI 解释和格式化后的笔记。
+ */
 // Async function to interpret the '#' command input using AI
 async function interpretHashCommand(input: string): Promise<string> {
   // Use the AI to interpret the input
@@ -63,6 +86,10 @@ async function interpretHashCommand(input: string): Promise<string> {
   }
 }
 
+/**
+ * @typedef {object} Props
+ * @description `PromptInput` 组件的属性。
+ */
 type Props = {
   commands: Command[]
   forkNumber: number
@@ -94,11 +121,24 @@ type Props = {
   ) => void
   readFileTimestamps: { [filename: string]: number }
 }
-
+/**
+ * @function getPastedTextPrompt
+ * @description 为粘贴的文本生成一个提示，该提示将显示在输入框中。
+ *
+ * @param {string} text - 粘贴的文本。
+ * @returns {string} 生成的提示字符串。
+ */
 function getPastedTextPrompt(text: string): string {
   const newlineCount = (text.match(/\r\n|\r|\n/g) || []).length
   return `[Pasted text +${newlineCount} lines] `
 }
+/**
+ * @component PromptInput
+ * @description `PromptInput` 组件的实现。
+ *
+ * @param {Props} props - 组件的属性。
+ * @returns {React.ReactNode} 渲染后的输入组件。
+ */
 function PromptInput({
   commands,
   forkNumber,
@@ -604,8 +644,15 @@ function PromptInput({
   )
 }
 
+/**
+ * @description 使用 `React.memo` 导出的 `PromptInput` 组件，以优化性能。
+ */
 export default memo(PromptInput)
-
+/**
+ * @function exit
+ * @description 退出应用程序。
+ * 在退出之前，它会清除终端标题。
+ */
 function exit(): never {
   setTerminalTitle('')
   process.exit(0)

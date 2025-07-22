@@ -1,3 +1,11 @@
+/**
+ * @file src/ProjectOnboarding.tsx
+ * @description 该文件定义了 `ProjectOnboarding` 组件，该组件负责在用户首次与项目交互时
+ * 显示引导提示和发布说明。它的目的是帮助用户开始使用，并告知他们最新版本的变化。
+ *
+ * 该组件会检查项目配置，以确定是否需要显示引导信息。它还会比较上次查看的发布说明
+ * 的版本，以决定是否显示新版本的说明。
+ */
 import * as React from 'react'
 import { OrderedList } from '@inkjs/ui'
 import { Box, Text } from 'ink'
@@ -18,6 +26,12 @@ import { isDirEmpty } from './utils/file'
 import { MACRO } from './constants/macros'
 import { PROJECT_FILE, PRODUCT_NAME } from './constants/product'
 
+/**
+ * @function markProjectOnboardingComplete
+ * @description 将当前项目的引导过程标记为已完成。
+ * 此函数会获取当前项目的配置，如果引导尚未完成，则更新配置以将其标记为已完成。
+ * 这可以防止在后续的会话中重复显示引导信息。
+ */
 // Function to mark onboarding as complete
 export function markProjectOnboardingComplete(): void {
   const projectConfig = getCurrentProjectConfig()
@@ -28,7 +42,12 @@ export function markProjectOnboardingComplete(): void {
     })
   }
 }
-
+/**
+ * @function markReleaseNotesSeen
+ * @description 将最新版本的发布说明标记为已查看。
+ * 此函数会更新全局配置，记录用户已看到的最新发布说明的版本号。
+ * 这可以防止在后续的会t话中重复显示相同的发布说明。
+ */
 function markReleaseNotesSeen(): void {
   const config = getGlobalConfig()
   saveGlobalConfig({
@@ -37,10 +56,22 @@ function markReleaseNotesSeen(): void {
   })
 }
 
+/**
+ * @typedef {object} Props
+ * @description `ProjectOnboarding` 组件的属性。
+ * @property {string} workspaceDir - 当前工作区的目录路径。
+ */
 type Props = {
   workspaceDir: string
 }
-
+/**
+ * @component ProjectOnboarding
+ * @description 一个 React 组件，用于向用户显示项目引导信息和发布说明。
+ * 它会根据用户的配置和当前工作区的状态，动态地显示相关的提示和信息。
+ *
+ * @param {Props} props - 组件的属性。
+ * @returns {React.ReactNode} 渲染后的组件，或者在不需要显示任何信息时返回 `null`。
+ */
 export default function ProjectOnboarding({
   workspaceDir,
 }: Props): React.ReactNode {

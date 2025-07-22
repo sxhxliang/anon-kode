@@ -1,3 +1,11 @@
+/**
+ * @file src/components/Message.tsx
+ * @description 该文件定义了 `Message` 组件，它是用于在终端中渲染单个对话消息的核心组件。
+ * 它能够处理来自用户和助手的不同类型的消息，并根据消息的类型和内容，
+ * 将其分派给相应的子组件进行渲染。
+ *
+ * `Message` 组件是对话界面的基本构建块，负责以清晰和有组织的方式向用户呈现信息。
+ */
 import { Box } from 'ink'
 import * as React from 'react'
 import type { AssistantMessage, Message, UserMessage } from '../query'
@@ -21,6 +29,22 @@ import { AssistantThinkingMessage } from './messages/AssistantThinkingMessage'
 import { AssistantRedactedThinkingMessage } from './messages/AssistantRedactedThinkingMessage'
 import { useTerminalSize } from '../hooks/useTerminalSize'
 
+/**
+ * @typedef {object} Props
+ * @description `Message` 组件的属性。
+ * @property {UserMessage | AssistantMessage} message - 要渲染的消息对象。
+ * @property {NormalizedMessage[]} messages - 整个对话的消息列表。
+ * @property {boolean} addMargin - 是否在消息周围添加边距。
+ * @property {Tool[]} tools - 可用的工具列表。
+ * @property {boolean} verbose - 是否启用详细模式。
+ * @property {boolean} debug - 是否启用调试模式。
+ * @property {Set<string>} erroredToolUseIDs - 导致错误的工具使用的 ID 集合。
+ * @property {Set<string>} inProgressToolUseIDs - 正在进行的工具使用的 ID 集合。
+ * @property {Set<string>} unresolvedToolUseIDs - 未解决的工具使用的 ID 集合。
+ * @property {boolean} shouldAnimate - 是否应该为消息的渲染添加动画效果。
+ * @property {boolean} shouldShowDot - 是否应该显示一个点，以指示消息的来源。
+ * @property {number | string} [width] - 消息的宽度。
+ */
 type Props = {
   message: UserMessage | AssistantMessage
   messages: NormalizedMessage[]
@@ -36,7 +60,14 @@ type Props = {
   shouldShowDot: boolean
   width?: number | string
 }
-
+/**
+ * @component Message
+ * @description `Message` 组件的实现。
+ * 它根据消息的类型（`assistant` 或 `user`）来决定如何渲染，并将其传递给相应的子组件。
+ *
+ * @param {Props} props - 组件的属性。
+ * @returns {React.ReactNode} 渲染后的消息组件。
+ */
 export function Message({
   message,
   messages,
@@ -100,6 +131,14 @@ export function Message({
   )
 }
 
+/**
+ * @component UserMessage
+ * @description 一个内部组件，用于渲染来自用户的消息。
+ * 它根据消息内容的类型（文本、工具结果等）来选择合适的渲染方式。
+ *
+ * @param {object} props - 组件的属性。
+ * @returns {React.ReactNode} 渲染后的用户消息。
+ */
 function UserMessage({
   message,
   messages,
@@ -140,6 +179,14 @@ function UserMessage({
   }
 }
 
+/**
+ * @component AssistantMessage
+ * @description 一个内部组件，用于渲染来自助手的消息。
+ * 它根据消息内容的类型（工具使用、文本、思考过程等）来选择合适的渲染方式。
+ *
+ * @param {object} props - 组件的属性。
+ * @returns {React.ReactNode} 渲染后的助手消息。
+ */
 function AssistantMessage({
   param,
   costUSD,
